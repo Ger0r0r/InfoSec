@@ -9,8 +9,13 @@ import math
 import pandas as pd
 import os
 import argparse
+from threading import Thread
+from concurrent.futures import ProcessPoolExecutor
 
-
+# real threads
+num_threads = 8
+# num works which will be divided between threads
+num_works = 100
 
 # Изменяемые параметры модели N, K, L, CountOfExperiments  - задаются как аргументы командной строки при запуске
 parser = argparse.ArgumentParser(description="Set parameters N, K, L for series")
@@ -33,18 +38,6 @@ bad_i = 1000000
 # if i - iter of sync lean inside of [1, border] we write syncronization success, else inc overborder var (below)
 border = 1000000
 
-
-
-#-------------------------------------------------
-# set random array from 0 to 1
-def gen_message ():
-	mes = np.zeros((K,N))
-	for i in range(N):
-		for j in range(K):
-			mes[j][i] = random.randint(0,1)
-	return mes
-#------------------------------------(gen_message)
-
 #-------------------------------------------------
 # replace all zeros by minus one
 def transform_message(m):
@@ -57,29 +50,14 @@ def transform_message(m):
 #-------------------------------------------------
 # calculate inner number
 def get_inter(m, s):
-	inter = np.zeros(K)
-	temp = m * s
-	# print(str(temp.tolist()))
-	for i in range(K):
-		inter[i] = np.sum(temp[i])
-		if (inter[i] > 0):
-			inter[i] = 1
-		else:
-			inter[i] = -1
-		# print(inter)
-	return inter
+	return np.where(np.greater(np.sum(m * s, axis = 1), 0), 1, -1)
+
 #------------------------------------(get_inter)
 
 #-------------------------------------------------
 # return number to range
 def return_in_border(T):
-	for i in range(N):
-		# some questions about method of bordering
-		for j in range(K):
-			if (T[j][i] > L):
-				T[j][i] = L
-			if (T[j][i] < -L):
-				T[j][i] = -L
+	np.clip(T, -L, L, out=T)
 	return T
 #-------------------------------------(return_in_border)
 
@@ -117,8 +95,7 @@ def modify_gineous(g, m, r_a, r_b, r_g):
 	new_g = g.copy()
 	i_g = get_inter(m, g)
 	if (r_g==r_a and r_g==r_b):
-		for i in range(K):
-			new_g[i,:] = g[i,:] + i_g[i]*m[i,:]*(r_g==i_g[i])
+		new_g = g + np.multiply(m, i_g.reshape(-1, 1))*(np.equal(r_g, i_g).reshape(-1, 1))
 	elif (r_g==r_a and r_g!=r_b):
 		index = np.argmin(np.abs(i_g))
 		new_g[index,:] = g[index,:] + i_g[index]*m[index,:]
@@ -199,24 +176,9 @@ def find_changed_message(a, b):
 	debug = 0
 	return 
 #-------------------------------------------------(find_changed_message)
-
-#-------------------------------------------------
-def preparation_experiment():
-	A = np.zeros((K,N))
-	B = np.zeros((K,N))
-	E = np.zeros((K,N))
-	G = np.zeros((K,N))
-	for i in range(N):
-		for j in range(K):
-			A[j][i] = random.randint(-L,L)
-			B[j][i] = random.randint(-L,L)
-			E[j][i] = random.randint(-L,L)
-			G[j][i] = random.randint(-L,L)
-	return A, B, E, G
-#-------------------------------------------------(preparation_experiment])
 	
 #-------------------------------------------------
-def debug_sit(s, i, debug, bad_s, bad_i):
+def debug_sit(A, B, s, i, debug, bad_s, bad_i):
 	fail = 0
 	if (s > bad_s or i > bad_i):
 		print("problem")
@@ -244,15 +206,15 @@ def debug_sit(s, i, debug, bad_s, bad_i):
 			fail = 1
 	return debug, bad_s, bad_i, s, i, fail
 #-------------------------------------------------(debug_sit)
-	
+
 #-------------------------------------------------
 def make_experiment(A, B, E, G, step_sync, debug, bad_s, bad_i):
 	s = 0
 	i = 0
 	r = 0
 	while (True):
-		M = gen_message()
-		M = transform_message(M)
+		# set random array with -1 or 1
+		M = np.random.randint(0, 2, size=(K,N))*2-1
 
 		A, B, E, G, r = change_coefficient(A, B, M, E, G, e_flag = "enable", g_flag = "enable")
 
@@ -265,25 +227,25 @@ def make_experiment(A, B, E, G, step_sync, debug, bad_s, bad_i):
 		# print(A.tolist())
 		# print(B.tolist())
 		# print(M.tolist())
-		debug, bad_s, bad_i, s, i, fail = debug_sit(s, i, debug, bad_s, bad_i)
+		debug, bad_s, bad_i, s, i, fail = debug_sit(A, B, s, i, debug, bad_s, bad_i)
 		if (fail):
 			break
 
 		i = i + 1
 
 		# check of sync
-		if ((A == B).all() and step_sync[0] == 0):
+		if (not ((step_sync[0] != 0) or (not (A == B).all()))):
 			step_sync[0] = i
-		if ((A == E).all() and step_sync[1] == 0):
+		if (not ((step_sync[1] != 0) or (not (A == E).all()))):
 			step_sync[1] = i
-		if ((B == E).all() and step_sync[2] == 0):
+		if (not ((step_sync[2] != 0) or (not (B == E).all()))):
 			step_sync[2] = i
-		if ((A == G).all() and step_sync[3] == 0):
+		if (not ((step_sync[3] != 0) or (not (A == G).all()))):
 			step_sync[3] = i
-		if ((B == G).all() and step_sync[4] == 0):
+		if (not ((step_sync[4] != 0) or (not (B == G).all()))):
 			step_sync[4] = i
 
-		if ((A == B).all() and (A == E).all() and (A == G).all()):
+		if ((step_sync[0] != 0) and (step_sync[1] != 0) and (step_sync[3] != 0)):
 			break
 	return A, step_sync
 #-------------------------------------------------(make_experiment)
@@ -293,9 +255,9 @@ def afterwork(over_boarder, p_syncronize_step, step_sync):
 
 	for i in range(5):
 		if (step_sync[i] > border):
-			over_border[i] = over_border[i] + 1
+			over_border[i] += 1
 		else:
-			p_syncronize_step[step_sync[i],i] = p_syncronize_step[step_sync[i],i] + 1
+			p_syncronize_step[step_sync[i],i] +=  1
 
 	return over_boarder, p_syncronize_step
 #-------------------------------------------------(afterwork)
@@ -322,41 +284,65 @@ def write_p(p_syncronize_step, p_weights):
 	data_frame_S.to_csv(file_name_S, header=None, index=None)
 #-------------------------------------------------(write_p)
 
+#-------------------------------------------------
+def thread_work(thread_id):
+	p_weights = np.zeros(2*L+1)
+	over_border = np.zeros(5)
+	p_syncronize_step = np.zeros((border, 5),dtype=int)
+	bad_work = np.zeros(4)
+
+	debug_loc = 0 
+	bad_s_loc = 1000 
+	bad_i_loc = 1000000 
+	for _ in range(thread_id, CountOfExperiments, num_works):
+		A = np.random.randint(0, 2*L + 1, size=(K,N)) - L
+		B = np.random.randint(0, 2*L + 1, size=(K,N)) - L
+		E = np.random.randint(0, 2*L + 1, size=(K,N)) - L
+		G = np.random.randint(0, 2*L + 1, size=(K,N)) - L
+
+		step_sync = np.zeros(5, dtype = int)
+		#make experiment
+		A, step_sync = make_experiment(A, B, E, G, step_sync, debug_loc, bad_s_loc, bad_i_loc)
+
+		#afterwork of experiment done
+		if (any(step_sync[1:] < step_sync[0])):
+			minimum = min(step_sync[1:])
+			for i in range(1,5):
+				if (step_sync[i] == minimum):
+					bad_work[i - 1] += 1
+		
+		over_border, p_syncronize_step = afterwork(over_border, p_syncronize_step, step_sync)
+		for t in range(N):
+			for j in range(K):
+				p_weights[int(A[j][t])+L] += 1
+
+	return p_weights, over_border, p_syncronize_step, bad_work
+#-------------------------------------------------(thread_work)
 
 ##################################################
 ## 						MAIN					##
 ##################################################
 
 over_border = np.zeros(5)
-step_sync = (np.zeros(5))
 p_syncronize_step = np.zeros((border, 5),dtype=int)
 print(np.shape(p_syncronize_step))
 p_weights = np.zeros(2*L+1)
 
 steps = np.arange(0,CountOfExperiments)
-bar = IncrementalBar('Done', max = CountOfExperiments)
 bad_work = np.zeros(4)
 
-for k in steps:
-	A, B, E, G = preparation_experiment()
-	#prepare inhale variables
-	bad = 0
-	step_sync = np.zeros(5, dtype = int)
-	#make experiment
-	A, step_sync = make_experiment(A, B, E, G, step_sync, debug, bad_s, bad_i)
-	#afterwork of experiment done
-	if (any(step_sync[1:] < step_sync[0])):
-		minimum = min(step_sync[1:])
-		for i in range(1,5):
-			if (step_sync[i] == minimum):
-				bad_work[i - 1] = bad_work[i - 1] + 1
-		bad = 1
-	
-	over_border, p_syncronize_step = afterwork(over_border, p_syncronize_step, step_sync)
-	for t in range(N):
-		for j in range(K):
-			p_weights[int(A[j][t])+L] = p_weights[int(A[j][t])+L] + 1
-	bar.next()
+bar = IncrementalBar('Done', max = num_works)
+with ProcessPoolExecutor(num_threads) as exe:
+	futures = []
+	for i in range(num_works):
+		futures.append(exe.submit(thread_work, i))
+	for i in range(num_works):
+		p_weights_loc, over_border_loc, p_syncronize_step_loc, bad_work_loc = futures[i].result()
+		p_weights += p_weights_loc
+		over_border += over_border_loc
+		p_syncronize_step += p_syncronize_step_loc
+		bad_work += bad_work_loc
+		bar.next()
 
 bar.finish()
 
