@@ -29,6 +29,8 @@ K = int(args.K)
 L = int(args.L)
 CountOfExperiments = int(args.CountOfExperiments)
 
+num_works = 100
+
 # flag for debug
 debug = 0 
 # if during this count of iter e have no changes in A & B matrices, we enable debug flag automatically
@@ -245,7 +247,7 @@ def make_experiment(A, B, E, G, step_sync, debug, bad_s, bad_i):
 		if (not ((step_sync[4] != 0) or (not (B == G).all()))):
 			step_sync[4] = i
 
-		if ((step_sync[0] != 0) and (step_sync[1] != 0) and (step_sync[3] != 0)):
+		if (step_sync[0] != 0):
 			break
 	return A, step_sync
 #-------------------------------------------------(make_experiment)
@@ -256,16 +258,16 @@ def afterwork(over_boarder, p_syncronize_step, step_sync):
 	for i in range(5):
 		if (step_sync[i] > border):
 			over_border[i] += 1
-		else:
-			p_syncronize_step[step_sync[i],i] +=  1
+		elif (step_sync[i] != 0):
+			p_syncronize_step[step_sync[i],i] += 1
 
 	return over_boarder, p_syncronize_step
 #-------------------------------------------------(afterwork)
 	
 #-------------------------------------------------
 def write_p(p_syncronize_step, p_weights):
-	file_name_N = "./N/N-N"+str(N)+"-K"+str(K)+"-L"+str(L)+".csv"
-	file_name_S = "./L/L-N"+str(N)+"-K"+str(K)+"-L"+str(L)+".csv"
+	file_name_N = "./T_N/N-N"+str(N)+"-K"+str(K)+"-L"+str(L)+".csv"
+	file_name_S = "./T_L/L-N"+str(N)+"-K"+str(K)+"-L"+str(L)+".csv"
 	try:
 		data_frame_N = pd.read_csv(file_name_N, header=None)
 		data_frame_S = pd.read_csv(file_name_S, header=None)
@@ -308,7 +310,7 @@ def thread_work(thread_id):
 		if (any(step_sync[1:] < step_sync[0])):
 			minimum = min(step_sync[1:])
 			for i in range(1,5):
-				if (step_sync[i] == minimum):
+				if (step_sync[i] == minimum and step_sync[i] != 0):
 					bad_work[i - 1] += 1
 		
 		over_border, p_syncronize_step = afterwork(over_border, p_syncronize_step, step_sync)
@@ -358,7 +360,7 @@ write_p(p_syncronize_step, p_weights)
 
 #-------------------------------------------------
 
-file_name_R = "./Results.csv"
+file_name_R = "./T_Results.csv"
 not_found = 0
 
 try:

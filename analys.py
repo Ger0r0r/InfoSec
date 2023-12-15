@@ -22,8 +22,8 @@ import sys
 
 def plot_NKL_series(N, K, L, border, points):
 
-	file_name_N = "./N/N-N"+str(N)+"-K"+str(K)+"-L"+str(L)+".csv"
-	file_name_S = "./L/L-N"+str(N)+"-K"+str(K)+"-L"+str(L)+".csv"
+	file_name_N = "./T_N/N-N"+str(N)+"-K"+str(K)+"-L"+str(L)+".csv"
+	file_name_S = "./T_L/L-N"+str(N)+"-K"+str(K)+"-L"+str(L)+".csv"
 
 	try:
 		data_frame_N = pd.read_csv(file_name_N, header=None)
